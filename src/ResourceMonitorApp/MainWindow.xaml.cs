@@ -130,7 +130,7 @@ namespace SystemResourceMonitor
             }
             catch (Exception ex)
             {
-                // Log error but don't crash
+                // Log error 
                 Console.WriteLine($"Error updating performance data: {ex.Message}");
             }
         }
@@ -184,13 +184,11 @@ namespace SystemResourceMonitor
             if (data.Count <= 1)
                 return;
 
-            // For CPU and RAM, we know the maximum is 100%
             double maxValue = 100;
 
-            // For other metrics (disk, network), use the actual maximum or a reasonable value
             if (canvas != cpuChart && canvas != ramChart)
             {
-                maxValue = data.Max() > 0 ? data.Max() * 1.2 : 1; // Add 20% headroom
+                maxValue = data.Max() > 0 ? data.Max() * 1.2 : 1; 
             }
 
             double width = canvas.ActualWidth;
