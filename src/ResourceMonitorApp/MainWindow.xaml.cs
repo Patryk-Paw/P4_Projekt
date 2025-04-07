@@ -1,15 +1,19 @@
 ﻿// MainWindow.xaml.cs
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
-using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.IO;
+using System.Windows.Shapes;
 
 namespace SystemResourceMonitor
 {
@@ -30,13 +34,20 @@ namespace SystemResourceMonitor
         private List<double> networkReceivedReadings = new List<double>();
 
         private DispatcherTimer timer;
-        private const int MaxDataPoints = 60; // 1 minute of data at 1 second intervals
+        private const int MaxDataPoints = 60; 
+
+        // Process monitoring fields
+        private ObservableCollection<ProcessInfo> processes = new ObservableCollection<ProcessInfo>();
+        private Dictionary<int, PerformanceCounter> processCpuCounters = new Dictionary<int, PerformanceCounter>();
+        private DispatcherTimer processUpdateTimer;
+        private ICollectionView processesView;
 
         public MainWindow()
         {
             InitializeComponent();
             InitializePerformanceCounters();
             InitializeTimer();
+            InitializeProcessMonitoring();
         }
 
         private void InitializePerformanceCounters()
@@ -48,7 +59,6 @@ namespace SystemResourceMonitor
                 diskReadCounter = new PerformanceCounter("PhysicalDisk", "Disk Read Bytes/sec", "_Total");
                 diskWriteCounter = new PerformanceCounter("PhysicalDisk", "Disk Write Bytes/sec", "_Total");
 
-                // Network counters require finding the correct network interface
                 string networkInterface = GetActiveNetworkInterface();
                 if (!string.IsNullOrEmpty(networkInterface))
                 {
@@ -75,7 +85,6 @@ namespace SystemResourceMonitor
                     {
                         return name;
                     }
-                    // Need to wait a bit before checking again
                     Thread.Sleep(100);
                     if (counter.NextValue() > 0)
                     {
@@ -118,7 +127,7 @@ namespace SystemResourceMonitor
                 AddToLimitedCollection(diskReadReadings, ConvertBytesToMB(diskReadBytes));
                 AddToLimitedCollection(diskWriteReadings, ConvertBytesToMB(diskWriteBytes));
 
-                // Update network if available
+                // Update network (if available)
                 if (networkSentCounter != null && networkReceivedCounter != null)
                 {
                     double networkSent = networkSentCounter.NextValue();
@@ -184,8 +193,8 @@ namespace SystemResourceMonitor
             if (data.Count <= 1)
                 return;
 
-            double maxValue = 100;
 
+            double maxValue = 100;
             if (canvas != cpuChart && canvas != ramChart)
             {
                 maxValue = data.Max() > 0 ? data.Max() * 1.2 : 1; 
@@ -209,9 +218,289 @@ namespace SystemResourceMonitor
             canvas.Children.Add(polyline);
         }
 
+        // Process Monitoring Methods
+
+        public class ProcessInfo : INotifyPropertyChanged
+        {
+            private string _name;
+            private int _id;
+            private double _cpuUsage;
+            private long _memoryUsage;
+            private string _status;
+
+            public string Name
+            {
+                get => _name;
+                set
+                {
+                    _name = value;
+                    OnPropertyChanged(nameof(Name));
+                }
+            }
+
+            public int Id
+            {
+                get => _id;
+                set
+                {
+                    _id = value;
+                    OnPropertyChanged(nameof(Id));
+                }
+            }
+
+            public double CpuUsage
+            {
+                get => _cpuUsage;
+                set
+                {
+                    _cpuUsage = value;
+                    OnPropertyChanged(nameof(CpuUsage));
+                    OnPropertyChanged(nameof(CpuUsageFormatted));
+                }
+            }
+
+            public string CpuUsageFormatted => $"{CpuUsage:F1}%";
+
+            public long MemoryUsage
+            {
+                get => _memoryUsage;
+                set
+                {
+                    _memoryUsage = value;
+                    OnPropertyChanged(nameof(MemoryUsage));
+                    OnPropertyChanged(nameof(MemoryUsageFormatted));
+                }
+            }
+
+            public string MemoryUsageFormatted => $"{MemoryUsage / (1024 * 1024):F1} MB";
+
+            public string Status
+            {
+                get => _status;
+                set
+                {
+                    _status = value;
+                    OnPropertyChanged(nameof(Status));
+                }
+            }
+
+            public event PropertyChangedEventHandler PropertyChanged;
+
+            protected void OnPropertyChanged(string propertyName)
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+
+        private void InitializeProcessMonitoring()
+        {
+            processesView = CollectionViewSource.GetDefaultView(processes);
+            processesListView.ItemsSource = processesView;
+
+            processUpdateTimer = new DispatcherTimer();
+            processUpdateTimer.Interval = TimeSpan.FromSeconds(2);
+            processUpdateTimer.Tick += ProcessUpdateTimer_Tick;
+            processUpdateTimer.Start();
+
+            RefreshProcessList();
+        }
+
+        private void ProcessUpdateTimer_Tick(object sender, EventArgs e)
+        {
+            UpdateProcessInfo();
+        }
+
+        private void RefreshProcessList()
+        {
+            try
+            {
+                // Clear existing processes and counters
+                processes.Clear();
+                foreach (var counter in processCpuCounters.Values)
+                {
+                    counter.Dispose();
+                }
+                processCpuCounters.Clear();
+
+                // Get all processes
+                Process[] runningProcesses = Process.GetProcesses();
+
+                foreach (Process process in runningProcesses)
+                {
+                    try
+                    {
+                        var processInfo = new ProcessInfo
+                        {
+                            Name = process.ProcessName,
+                            Id = process.Id,
+                            Status = "Running"
+                        };
+
+                        // Try to get memory info
+                        try
+                        {
+                            processInfo.MemoryUsage = process.WorkingSet64;
+                        }
+                        catch
+                        {
+                            processInfo.MemoryUsage = 0;
+                        }
+
+                        // Try to create CPU counter
+                        try
+                        {
+                            var cpuCounter = new PerformanceCounter("Process", "% Processor Time", process.ProcessName, true);
+                            cpuCounter.NextValue(); // First call always returns 0
+                            processCpuCounters[process.Id] = cpuCounter;
+                        }
+                        catch
+                        {
+                            // Some system processes may not allow counters
+                        }
+
+                        processes.Add(processInfo);
+                    }
+                    catch
+                    {
+                        // We Skip processes that we can't access
+                    }
+                }
+
+                // Sort by memory usage (descending)
+                processesView.SortDescriptions.Clear();
+                processesView.SortDescriptions.Add(new SortDescription("MemoryUsage", ListSortDirection.Descending));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error refreshing process list: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateProcessInfo()
+        {
+            try
+            {
+                // Get current processes
+                var currentProcesses = Process.GetProcesses().ToDictionary(p => p.Id);
+
+                // Update existing processes
+                for (int i = processes.Count - 1; i >= 0; i--)
+                {
+                    var processInfo = processes[i];
+
+                    // Check if process still exists
+                    if (currentProcesses.TryGetValue(processInfo.Id, out Process process))
+                    {
+                        try
+                        {
+                            // Update memory usage
+                            processInfo.MemoryUsage = process.WorkingSet64;
+
+                            // Update CPU usage if counter exists
+                            if (processCpuCounters.TryGetValue(processInfo.Id, out PerformanceCounter counter))
+                            {
+                                try
+                                {
+                                    processInfo.CpuUsage = Math.Round(counter.NextValue() / Environment.ProcessorCount, 1);
+                                }
+                                catch
+                                {
+                                    processInfo.CpuUsage = 0;
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            processes.RemoveAt(i);
+                        }
+                    }
+                    else
+                    {
+                        if (processCpuCounters.TryGetValue(processInfo.Id, out PerformanceCounter counter))
+                        {
+                            counter.Dispose();
+                            processCpuCounters.Remove(processInfo.Id);
+                        }
+                        processes.RemoveAt(i);
+                    }
+                }
+
+                // Check for new processes
+                var existingIds = new HashSet<int>(processes.Select(p => p.Id));
+                foreach (var process in currentProcesses.Values)
+                {
+                    if (!existingIds.Contains(process.Id))
+                    {
+                        try
+                        {
+                            var processInfo = new ProcessInfo
+                            {
+                                Name = process.ProcessName,
+                                Id = process.Id,
+                                MemoryUsage = process.WorkingSet64,
+                                Status = "Running"
+                            };
+
+                            // Try to create CPU counter
+                            try
+                            {
+                                var cpuCounter = new PerformanceCounter("Process", "% Processor Time", process.ProcessName, true);
+                                cpuCounter.NextValue(); 
+                                processCpuCounters[process.Id] = cpuCounter;
+                            }
+                            catch
+                            {
+                                // Some system processes may not allow counters
+                            }
+
+                            processes.Add(processInfo);
+                        }
+                        catch
+                        {
+                            // We Skip processes that we can't access
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating process info: {ex.Message}");
+            }
+        }
+
+        private void RefreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            RefreshProcessList();
+        }
+
+        private void EndProcessButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (processesListView.SelectedItem is ProcessInfo selectedProcess)
+            {
+                try
+                {
+                    Process process = Process.GetProcessById(selectedProcess.Id);
+                    if (MessageBox.Show($"Are you sure you want to end the process '{selectedProcess.Name}' (ID: {selectedProcess.Id})?",
+                                       "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+                    {
+                        process.Kill();
+                        selectedProcess.Status = "Terminating";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error ending process: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Please select a process to end.", "No Selection", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             timer.Stop();
+            processUpdateTimer?.Stop();
 
             // Dispose performance counters
             cpuCounter?.Dispose();
@@ -220,6 +509,11 @@ namespace SystemResourceMonitor
             diskWriteCounter?.Dispose();
             networkSentCounter?.Dispose();
             networkReceivedCounter?.Dispose();
+
+            foreach (var counter in processCpuCounters.Values)
+            {
+                counter.Dispose();
+            }
         }
     }
 }
