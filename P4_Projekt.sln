@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35327.3
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{836BAB45-A077-428A-9931-990C6619C6CE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Shared", "Shared", "{D48F6F72-D941-4AFD-9FD5-C4FF9A03AD91}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Domain", "Domain", "{5F1CEAA9-6E69-45A0-94FF-FEB2C82301B0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ResourceMonitorApp", "src\ResourceMonitorApp\ResourceMonitorApp.csproj", "{EA08D861-6772-4C86-98CB-0182FD55B30F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EA08D861-6772-4C86-98CB-0182FD55B30F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EA08D861-6772-4C86-98CB-0182FD55B30F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EA08D861-6772-4C86-98CB-0182FD55B30F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EA08D861-6772-4C86-98CB-0182FD55B30F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D48F6F72-D941-4AFD-9FD5-C4FF9A03AD91} = {836BAB45-A077-428A-9931-990C6619C6CE}
+		{5F1CEAA9-6E69-45A0-94FF-FEB2C82301B0} = {D48F6F72-D941-4AFD-9FD5-C4FF9A03AD91}
+		{EA08D861-6772-4C86-98CB-0182FD55B30F} = {836BAB45-A077-428A-9931-990C6619C6CE}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0CD88210-45C3-4F74-9FEB-0AA982B891EF}
+	EndGlobalSection
+EndGlobal
